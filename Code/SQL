@@ -1,0 +1,222 @@
+-- Step 1: Analyze average GPU clock speed by manufacturer.
+-- Purpose: Identify manufacturers leading in clock speed performance.
+
+
+SELECT
+    manufacturer,
+    AVG(gpuClock) AS avg_gpu_clock_speed
+FROM
+    `case3-443510.GPU.combined_table`
+GROUP BY
+    manufacturer
+ORDER BY
+    avg_gpu_clock_speed DESC;
+
+
+-- Step 2: Identify top-performing GPUs.
+-- Purpose: Pinpoint GPUs suitable for high-performance applications based on clock speed and memory size.
+
+
+SELECT
+    manufacturer,
+    productName,
+    gpuClock,
+    memSize,
+    releaseYear
+FROM
+    `case3-443510.GPU.combined_table`
+WHERE
+    gpuClock > 2000 AND memSize > 8
+ORDER BY
+    gpuClock DESC, memSize DESC;
+
+
+-- Step 3: Analyze trends in clock speeds and memory sizes over the years.
+-- Purpose: Examine how key GPU specifications have evolved over time.
+
+
+SELECT
+    releaseYear,
+    AVG(gpuClock) AS avg_gpu_clock_speed,
+    AVG(memSize) AS avg_memory_size
+FROM
+    `case3-443510.GPU.combined_table`
+WHERE
+    releaseYear IS NOT NULL
+GROUP BY
+    releaseYear
+ORDER BY
+    releaseYear;
+
+
+-- Step 4: Count missing data in critical fields.
+-- Purpose: Evaluate data gaps in `memSize` and `memBusWidth`.
+
+
+SELECT
+    COUNT(*) AS total_rows,
+    SUM(CASE WHEN memSize IS NULL THEN 1 ELSE 0 END) AS missing_memSize,
+    SUM(CASE WHEN memBusWidth IS NULL THEN 1 ELSE 0 END) AS missing_memBusWidth
+FROM
+    `case3-443510.GPU.combined_table`;
+CREATE OR REPLACE TABLE `case3-443510.GPU.combined_table_imputed` AS
+SELECT
+    *,
+    COALESCE(memSize, (SELECT AVG(memSize) FROM `case3-443510.GPU.combined_table`)) AS memSize_imputed,
+    COALESCE(memBusWidth, (SELECT AVG(memBusWidth) FROM `case3-443510.GPU.combined_table`)) AS memBusWidth_imputed
+FROM
+    `case3-443510.GPU.combined_table`;
+SELECT
+    SUM(CASE WHEN memSize_imputed IS NULL THEN 1 ELSE 0 END) AS remaining_missing_memSize,
+    SUM(CASE WHEN memBusWidth_imputed IS NULL THEN 1 ELSE 0 END) AS remaining_missing_memBusWidth
+FROM
+    `case3-443510.GPU.combined_table_imputed`;
+   
+-- Analyze correlations between GPU specifications and clock speed (proxy for performance).
+-- Focus on metrics like memory size, memory bus width, and unified shaders.
+
+
+SELECT
+    CORR(gpuClock, memSize_imputed) AS corr_gpuClock_memSize,
+    CORR(gpuClock, memBusWidth_imputed) AS corr_gpuClock_memBusWidth,
+    CORR(gpuClock, unifiedShader) AS corr_gpuClock_unifiedShader
+FROM
+    `case3-443510.GPU.combined_table_imputed`;
+
+
+-- Analyze trends in clock speed, memory size, and memory bus width over the years.
+
+
+SELECT
+    releaseYear,
+    AVG(gpuClock) AS avg_gpu_clock_speed,
+    AVG(memSize_imputed) AS avg_memory_size,
+    AVG(memBusWidth_imputed) AS avg_memory_bus_width
+FROM
+    `case3-443510.GPU.combined_table_imputed`
+WHERE
+    releaseYear IS NOT NULL
+GROUP BY
+    releaseYear
+ORDER BY
+    releaseYear DESC;
+
+
+
+
+-- Identify top-performing GPUs based on clock speed and memory size.
+-- Include other relevant specifications like unified shaders.
+
+
+SELECT
+    manufacturer,
+    productName,
+    gpuClock,
+    memSize_imputed AS memory_size,
+    memBusWidth_imputed AS memory_bus_width,
+    unifiedShader AS shaders,
+    releaseYear
+FROM
+    `case3-443510.GPU.combined_table_imputed`
+WHERE
+    gpuClock > 2000 AND memSize_imputed > 8
+ORDER BY
+    gpuClock DESC, memSize_imputed DESC
+LIMIT 10;
+
+
+-- Analyze average clock speed and memory size per manufacturer over time.
+
+
+SELECT
+    manufacturer,
+    releaseYear,
+    AVG(gpuClock) AS avg_gpu_clock_speed,
+    AVG(memSize_imputed) AS avg_memory_size,
+    AVG(memBusWidth_imputed) AS avg_memory_bus_width
+FROM
+    `case3-443510.GPU.combined_table_imputed`
+WHERE
+    releaseYear IS NOT NULL
+GROUP BY
+    manufacturer, releaseYear
+ORDER BY
+    manufacturer, releaseYear;
+-- Calculate the average clock speed per year
+SELECT
+    releaseYear,
+    AVG(gpuClock) AS avg_clock_speed
+FROM
+    `case3-443510.GPU.combined_table_imputed`
+GROUP BY
+    releaseYear
+ORDER BY
+    releaseYear;
+-- Compare average memory size across manufacturers
+SELECT
+    manufacturer,
+    AVG(memSize) AS avg_memory_size
+FROM
+    `case3-443510.GPU.combined_table_imputed`
+GROUP BY
+    manufacturer
+ORDER BY
+    avg_memory_size DESC;
+-- Identify the top GPUs based on clock speed and memory size
+SELECT
+    manufacturer,
+    productName,
+    gpuClock,
+    memSize,
+    (gpuClock * memSize) AS performance_score
+FROM
+    `case3-443510.GPU.combined_table_imputed`
+ORDER BY
+    performance_score DESC
+LIMIT 10;
+-- List GPUs released after 2020
+SELECT
+    manufacturer,
+    productName,
+    gpuClock,
+    memSize,
+    releaseYear
+FROM
+    `case3-443510.GPU.combined_table_imputed`
+WHERE
+    releaseYear > 2020
+ORDER BY
+    releaseYear DESC;
+-- Distribution of memory sizes by manufacturer, sorted by GPU count
+SELECT
+    manufacturer,
+    CASE
+        WHEN memSize <= 8 THEN '0-8 GB'
+        WHEN memSize > 8 AND memSize <= 16 THEN '9-16 GB'
+        WHEN memSize > 16 AND memSize <= 32 THEN '17-32 GB'
+        WHEN memSize > 32 AND memSize <= 64 THEN '33-64 GB'
+        ELSE '65+ GB'
+    END AS memory_range,
+    COUNT(*) AS gpu_count,
+    ROUND(100 * COUNT(*) / SUM(COUNT(*)) OVER (PARTITION BY manufacturer), 2) AS percentage
+FROM
+    `case3-443510.GPU.combined_table_imputed`
+GROUP BY
+    manufacturer, memory_range
+ORDER BY
+    gpu_count DESC;
+
+
+-- Analyze manufacturers focusing on high-memory GPUs
+SELECT
+    manufacturer,
+    COUNT(*) AS high_memory_gpu_count,
+    ROUND(100 * COUNT(*) / SUM(COUNT(*)) OVER (PARTITION BY manufacturer), 2) AS high_memory_percentage
+FROM
+    `case3-443510.GPU.combined_table_imputed`
+WHERE
+    memSize > 32 -- Threshold for "high-memory" GPUs
+GROUP BY
+    manufacturer
+ORDER BY
+    high_memory_percentage DESC;
